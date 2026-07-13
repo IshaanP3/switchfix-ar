@@ -4,6 +4,8 @@
 
 Copyright 2026 Ishaan Padukone
 
+note: this is a personal project and not for mass use.
+
 The original source code in this repository is released under the MIT License.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files, to deal in the software without restriction, including the rights to use, copy, modify, merge, publish, distribute, sublicense, and sell copies of the software, subject to including this copyright and permission notice.
