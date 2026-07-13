@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#181a1d" />
+    <meta
+      name="description"
+      content="A webcam assisted Nintendo Switch battery replacement guide powered by iFixit instructions."
+    />
+    <title>SwitchFix AR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+          <div>
+            <p class="eyebrow">CAMERA ASSISTED REPAIR</p>
+            <h1>SwitchFix <strong>AR</strong></h1>
+          </div>
+        </div>
+        <div class="top-actions">
+          <span id="apiStatus" class="status-pill" data-state="loading">
+            <span class="status-dot"></span>
+            Loading iFixit guide
+          </span>
+          <button id="helpButton" class="icon-button" type="button" aria-label="Open help">?</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="camera-panel" aria-label="Repair camera view">
+          <div class="camera-stage" id="cameraStage">
+            <video id="cameraVideo" playsinline muted></video>
+            <canvas id="overlayCanvas"></canvas>
+
+            <div id="cameraEmpty" class="camera-empty">
+              <div class="camera-icon" aria-hidden="true"></div>
+              <h2>Place your Switch face down</h2>
+              <p>Automatic edge detection works best on a plain, contrasting repair mat.</p>
+              <button id="startCameraButton" class="primary-button" type="button">
+                <span class="button-icon">●</span>
+                Start camera
+              </button>
+              <button id="demoButton" class="text-button" type="button">Explore without camera</button>
+            </div>
+
+            <div id="orientationCard" class="orientation-card hidden" aria-live="polite">
+              <div class="orientation-icon" id="orientationIcon" aria-hidden="true">▭</div>
+              <div class="orientation-copy">
+                <strong id="orientationTitle">Rear view</strong>
+                <p id="orientationInstruction">Lay the Switch flat with the rear facing the camera.</p>
+                <div class="confidence-row">
+                  <span id="detectionConfidence">Scanning live edges</span>
+                  <span class="confidence-track"><span id="detectionConfidenceBar"></span></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="tracking-badge hidden" id="trackingBadge">
+              <span class="tracking-pulse"></span>
+              <span id="trackingText">Tracking console</span>
+            </div>
+
+            <div class="camera-toolbar hidden" id="cameraToolbar">
+              <button id="rescanButton" class="toolbar-button" type="button">Re-scan</button>
+              <button id="manualButton" class="toolbar-button" type="button">Tap corners</button>
+              <button id="mirrorButton" class="toolbar-button" type="button">Mirror</button>
+              <button id="stopCameraButton" class="toolbar-button danger" type="button">Stop</button>
+            </div>
+          </div>
+
+          <div class="step-card">
+            <div class="step-heading-row">
+              <div>
+                <p class="eyebrow">CURRENT INSTRUCTION</p>
+                <h2><span id="stepNumber">Step 1</span> <span id="stepTitle">Prepare the console</span></h2>
+              </div>
+              <a id="ifixitLink" class="source-link" href="https://www.ifixit.com/Guide/Nintendo+Switch+Battery+Replacement/112995" target="_blank" rel="noreferrer">
+                View on iFixit ↗
+              </a>
+            </div>
+            <p id="stepSummary" class="step-summary"></p>
+            <ul id="stepDetails" class="step-details"></ul>
+            <div id="stepWarning" class="warning-box hidden"></div>
+            <div id="viewSequence" class="view-sequence hidden" aria-label="Camera views for this step"></div>
+          </div>
+
+          <div class="navigation-bar">
+            <button id="previousButton" class="secondary-button" type="button">Back</button>
+            <div class="progress-wrap">
+              <div class="progress-label">
+                <span id="progressLabel">1 of 20</span>
+                <span id="progressPercent">5%</span>
+              </div>
+              <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+            </div>
+            <button id="nextButton" class="primary-button" type="button">Next step</button>
+          </div>
+        </section>
+
+        <aside class="side-panel" aria-label="Repair progress">
+          <section class="side-card safety-card">
+            <div class="side-card-heading">
+              <span class="side-icon">!</span>
+              <div>
+                <p class="eyebrow">BEFORE YOU BEGIN</p>
+                <h3>Safety check</h3>
+              </div>
+            </div>
+            <label class="check-row">
+              <input id="safetyPower" type="checkbox" />
+              <span>Console is fully powered off</span>
+            </label>
+            <label class="check-row">
+              <input id="safetyBattery" type="checkbox" />
+              <span>Battery is below 25%</span>
+            </label>
+            <label class="check-row">
+              <input id="safetyModel" type="checkbox" />
+              <span>Model is HAC-001 or HAC-001(-01)</span>
+            </label>
+          </section>
+
+          <section class="side-card screw-card">
+            <div class="side-card-heading compact">
+              <div>
+                <p class="eyebrow">PARTS TRACKER</p>
+                <h3>Screws removed</h3>
+              </div>
+              <strong id="screwTotal" class="screw-total">0 / 17</strong>
+            </div>
+            <div id="screwChart" class="screw-chart"></div>
+            <p class="tiny-note">Keep each batch separate. Screw lengths are not interchangeable.</p>
+            <button id="resetProgressButton" class="reset-progress-button" type="button">Reset repair progress</button>
+          </section>
+
+          <section class="side-card tools-card">
+            <div class="side-card-heading compact">
+              <div>
+                <p class="eyebrow">CURRENT TOOL</p>
+                <h3 id="currentTool">No tool required</h3>
+              </div>
+            </div>
+            <div id="toolTip" class="tool-tip">Follow the highlighted area in the camera view.</div>
+          </section>
+
+          <section class="side-card reference-card">
+            <div class="side-card-heading compact">
+              <div>
+                <p class="eyebrow">VISUAL REFERENCE</p>
+                <h3>iFixit image</h3>
+              </div>
+            </div>
+            <div id="referenceImageWrap" class="reference-image-wrap">
+              <div class="reference-placeholder">The current guide image will appear here when available.</div>
+            </div>
+          </section>
+        </aside>
+      </main>
+
+      <footer>
+        Guide content and images are attributed to iFixit and used under CC BY-NC-SA. This prototype is not affiliated with Nintendo or iFixit.
+      </footer>
+    </div>
+
+    <dialog id="helpDialog" class="help-dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">HOW IT WORKS</p>
+          <h2>Set up the overlay</h2>
+        </div>
+        <button id="closeHelpButton" class="icon-button" type="button" aria-label="Close help">×</button>
+      </div>
+      <ol class="help-steps">
+        <li><strong>Start the camera.</strong> Use bright, even lighting and place the Switch on a contrasting repair mat.</li>
+        <li><strong>Let the outline lock.</strong> The scanner finds the centered dark Switch shape, then JSFeat optical flow follows small movements.</li>
+        <li><strong>Use Tap corners if needed.</strong> Tap top-left, top-right, bottom-right, then bottom-left to lock a stationary manual outline.</li>
+        <li><strong>Rotate when prompted.</strong> Top, bottom, left rail, and right rail views each start a new edge scan with corrected marker positions.</li>
+        <li><strong>Continue after finishing each view.</strong> The screw tracker records only the screws shown in that camera view.</li>
+      </ol>
+      <div class="dialog-note">
+        This is an assistive overlay, not a substitute for checking the official iFixit image. Press Re-scan if the wrong rectangular object is detected, and keep tools and hands outside the outline while it locks.
+      </div>
+    </dialog>
+
+    <script
+      src="./vendor/jsfeat-min.js"
+      async
+      id="trackerScript"
+      onload="document.documentElement.dataset.trackerScript = 'loaded'"
+      onerror="document.documentElement.dataset.trackerScript = 'failed'"
+    ></script>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "switchfix-ar",
+  "version": "2.2.0",
+  "description": "A camera-assisted Nintendo Switch battery replacement guide with browser-based perspective tracking.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://ishaanp3.github.io/switchfix-ar/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/IshaanP3/switchfix-ar.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test",
+    "start": "node server.mjs"
+  }
+}
