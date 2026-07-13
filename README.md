@@ -16,7 +16,7 @@ SwitchFix AR is a camera-assisted web guide for replacing the battery in an orig
 
 ## Why this project
 
-Repair instructions are usually presented as static photos. SwitchFix AR explores a more spatial workflow: detect the device, estimate its four-corner perspective, and transform normalized guide coordinates into live camera positions. The interface also keeps the safety checklist, current tool, screw lengths, and repair progress visible throughout the job.
+Repair instructions are usually presented as static photos. with new EU laws mandating easily reparable batteries, I thought this would make it easier for current gen 1 switch owners to replace their batteries. SwitchFix AR explores a more spatial workflow: detect the device, estimate its four-corner perspective, and transform normalized guide coordinates into live camera positions. The interface also keeps the safety checklist, current tool, screw lengths, and repair progress visible throughout the job. it displays the current Ifixit step photo aswell incase the edge tracking messes up. 
 
 The result is a lightweight, install-free prototype that runs entirely in the browser and can be hosted as a static site.
 
