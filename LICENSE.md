@@ -2,7 +2,7 @@
 
 ## Source code
 
-Copyright 2026 Rohit Padukone
+Copyright 2026 Ishaan Padukone
 
 The original source code in this repository is released under the MIT License.
 
