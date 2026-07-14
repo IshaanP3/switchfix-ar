@@ -127,6 +127,7 @@ export const FALLBACK_STEPS = [
     title: "Lift off the rear panel",
     summary: "Open the game-card flap, then lift the rear panel straight up from the bottom edge.",
     details: ["Do not hinge the panel upward, which can damage the top tabs."],
+    risk: { level: "fragile", label: "Fragile tabs", message: "Lift straight up. Tilting the panel can snap the top tabs." },
     tool: "Opening pick, optional",
     markers: [focus(0.50, 0.96, "Lift straight up")],
   },
@@ -144,6 +145,7 @@ export const FALLBACK_STEPS = [
     title: "Disconnect the microSD reader",
     summary: "Lift the microSD card reader straight up to disconnect its press connector.",
     details: ["During reassembly, verify the connector is fully seated before replacing the foam pad."],
+    risk: { level: "fragile", label: "Fragile connector", message: "Lift the reader straight up; sideways force can damage the press connector." },
     tool: "Tweezers, optional",
     markers: [focus(0.15, 0.70, "Lift connector")],
   },
@@ -170,6 +172,7 @@ export const FALLBACK_STEPS = [
     details: ["The thermal compound may create light resistance.", "Plan to restore the thermal interface during reassembly."],
     tool: "Spudger",
     warning: "Normal thin thermal paste is not suitable for bridging this gap. Follow the official guide for thermal putty guidance.",
+    risk: { level: "high", label: "Thermal interface", message: "Pry gently. The shield may be bonded by thermal compound." },
     markers: [focus(0.16, 0.48, "Pry edge")],
   },
   {
@@ -177,6 +180,7 @@ export const FALLBACK_STEPS = [
     title: "Disconnect the battery",
     summary: "Use the tip of a spudger to lift the battery connector straight out of its socket.",
     details: ["Do not pry against nearby components."],
+    risk: { level: "fragile", label: "Fragile cable", message: "Lift the battery connector straight up and avoid nearby board components." },
     tool: "Spudger",
     markers: [focus(0.58, 0.54, "Battery connector")],
   },
@@ -187,6 +191,7 @@ export const FALLBACK_STEPS = [
     details: ["Use 90% or higher isopropyl alcohol if following the alcohol method."],
     tool: "Adhesive remover or 90%+ IPA",
     warning: "Keep liquid away from openings and use only a small amount.",
+    risk: { level: "high", label: "Battery risk", message: "Use only a few drops and keep solvent away from openings." },
     markers: [focus(0.37, 0.30, "Apply drops")],
   },
   {
@@ -194,6 +199,7 @@ export const FALLBACK_STEPS = [
     title: "Let the solvent work",
     summary: "Tilt the top edge upward and allow the solvent to reach the adhesive under the battery.",
     details: ["Hold for about one to two minutes."],
+    risk: { level: "high", label: "Battery risk", message: "Keep the battery stable while the solvent reaches the adhesive." },
     tool: "No tool required",
     markers: [focus(0.50, 0.12, "Raise this edge")],
   },
@@ -204,6 +210,7 @@ export const FALLBACK_STEPS = [
     details: ["Move slowly and keep the pick shallow."],
     tool: "Plastic opening pick",
     warning: "Never puncture, crease, or sharply bend a lithium-ion battery.",
+    risk: { level: "high", label: "Puncture risk", message: "Keep the plastic pick shallow. Never puncture, crease, or bend the battery." },
     markers: [focus(0.22, 0.53, "Insert pick")],
   },
   {
@@ -211,6 +218,7 @@ export const FALLBACK_STEPS = [
     title: "Add more solvent if needed",
     summary: "Leave the pick in place, add a few more drops, tilt the console, and wait again.",
     details: ["Allow another one to two minutes for the adhesive to soften."],
+    risk: { level: "high", label: "Battery risk", message: "Add solvent instead of increasing force against the battery." },
     tool: "Adhesive remover or 90%+ IPA",
     markers: [focus(0.39, 0.30, "Add drops")],
   },
@@ -219,6 +227,7 @@ export const FALLBACK_STEPS = [
     title: "Continue separating the adhesive",
     summary: "Slide the opening pick farther along the top edge to cut more of the adhesive.",
     details: ["Stop and add more solvent rather than applying excessive force."],
+    risk: { level: "high", label: "Puncture risk", message: "Use a plastic pick and stop if the battery begins to deform." },
     tool: "Plastic opening pick",
     markers: [focus(0.46, 0.38, "Slide pick")],
   },
@@ -229,6 +238,7 @@ export const FALLBACK_STEPS = [
     details: ["Remove the battery and do not reuse it."],
     tool: "Plastic card",
     warning: "Do not bend the battery. Stop immediately if it becomes hot, swells, smokes, or smells unusual.",
+    risk: { level: "high", label: "Battery hazard", message: "Stop immediately for heat, swelling, smoke, odor, or deformation." },
     markers: [focus(0.41, 0.56, "Slide card")],
   },
   {
@@ -276,7 +286,7 @@ function extractLines(step) {
 
 export async function loadIfixitGuide() {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  const timeout = setTimeout(() => controller.abort(), 5000);
   let response;
   try {
     response = await fetch(IFIXIT_API_URL, {

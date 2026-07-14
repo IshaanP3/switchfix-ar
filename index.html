@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#181a1d" />
     <meta
       name="description"
-      content="A webcam assisted Nintendo Switch battery replacement guide powered by iFixit instructions."
+      content="A portfolio-ready Nintendo Switch battery repair guide with perspective AR, component training, assembly animation, safety warnings, and on-device Joy-Con colour detection."
     />
     <title>SwitchFix AR</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -30,9 +30,11 @@
           </div>
         </div>
         <div class="top-actions">
-          <span id="apiStatus" class="status-pill" data-state="loading">
+          <button id="trainingButton" class="top-action-button" type="button">Training lab</button>
+          <button id="assemblyButton" class="top-action-button" type="button">Assembly preview</button>
+          <span id="apiStatus" class="status-pill" data-state="fallback">
             <span class="status-dot"></span>
-            Loading iFixit guide
+            Bundled guide ready
           </span>
           <button id="helpButton" class="icon-button" type="button" aria-label="Open help">?</button>
         </div>
@@ -64,12 +66,24 @@
                   <span id="detectionConfidence">Scanning live edges</span>
                   <span class="confidence-track"><span id="detectionConfidenceBar"></span></span>
                 </div>
+                <small id="sceneLighting" class="scene-lighting">Measuring lighting...</small>
               </div>
             </div>
 
             <div class="tracking-badge hidden" id="trackingBadge">
               <span class="tracking-pulse"></span>
               <span id="trackingText">Tracking console</span>
+            </div>
+
+            <div id="riskBadge" class="risk-badge hidden" aria-live="polite">
+              <span class="risk-symbol" aria-hidden="true">!</span>
+              <span><strong id="riskLabel">High-risk step</strong><small id="riskMessage"></small></span>
+            </div>
+
+            <div id="componentBadge" class="component-badge hidden" aria-live="polite">
+              <span>Component overlay:</span>
+              <strong id="componentBadgeName"></strong>
+              <button id="clearComponentButton" type="button">Clear</button>
             </div>
 
             <div class="camera-toolbar hidden" id="cameraToolbar">
@@ -155,6 +169,22 @@
             <div id="toolTip" class="tool-tip">Follow the highlighted area in the camera view.</div>
           </section>
 
+          <section class="side-card training-card">
+            <div class="side-card-heading compact">
+              <div>
+                <p class="eyebrow">PRACTICE MODE</p>
+                <h3>AR training lab</h3>
+              </div>
+              <span id="trainingScore" class="training-score">0 / 4</span>
+            </div>
+            <p class="tiny-card-copy">Calibrate in varied lighting, then learn the five major repair components.</p>
+            <div class="training-card-actions">
+              <button id="openAlignmentButton" class="reset-progress-button" type="button">Alignment practice</button>
+              <button id="openComponentsButton" class="reset-progress-button" type="button">Identify components</button>
+              <button id="openAssemblyButton" class="reset-progress-button" type="button">Watch reassembly</button>
+            </div>
+          </section>
+
           <section class="side-card reference-card">
             <div class="side-card-heading compact">
               <div>
@@ -188,10 +218,95 @@
         <li><strong>Use Tap corners if needed.</strong> Tap top-left, top-right, bottom-right, then bottom-left to lock a stationary manual outline.</li>
         <li><strong>Rotate when prompted.</strong> Top, bottom, left rail, and right rail views each start a new edge scan with corrected marker positions.</li>
         <li><strong>Continue after finishing each view.</strong> The screw tracker records only the screws shown in that camera view.</li>
+        <li><strong>Show loose Joy-Cons naturally.</strong> Fully visible red/orange and blue controllers are labelled automatically using on-device colour and shape detection.</li>
       </ol>
       <div class="dialog-note">
         This is an assistive overlay, not a substitute for checking the official iFixit image. Press Re-scan if the wrong rectangular object is detected, and keep tools and hands outside the outline while it locks.
       </div>
+    </dialog>
+
+    <dialog id="trainingDialog" class="help-dialog training-dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">AR TRAINING LAB</p>
+          <h2>Practice before the repair</h2>
+        </div>
+        <button id="closeTrainingButton" class="icon-button" type="button" aria-label="Close training">&times;</button>
+      </div>
+      <div class="training-tabs" role="tablist" aria-label="Training modes">
+        <button class="training-tab active" data-training-tab="alignment" type="button">Alignment &amp; lighting</button>
+        <button class="training-tab" data-training-tab="components" type="button">Component identification</button>
+      </div>
+
+      <section id="alignmentPanel" class="training-panel">
+        <div class="metric-strip" aria-live="polite">
+          <div><span>Lighting</span><strong id="metricLighting">Camera off</strong></div>
+          <div><span>Brightness</span><strong id="metricBrightness">--</strong></div>
+          <div><span>Contrast</span><strong id="metricContrast">--</strong></div>
+          <div><span>Tracking</span><strong id="metricTracking">Not locked</strong></div>
+        </div>
+        <p id="lightingAdvice" class="training-instruction">Start the camera, center the rear of the console, and record each environment.</p>
+        <div id="lightingTrials" class="lighting-trials"></div>
+        <div class="training-actions">
+          <button id="startTrainingCameraButton" class="secondary-button" type="button">Start camera</button>
+          <button id="recordTrialButton" class="primary-button" type="button">Record selected trial</button>
+        </div>
+        <div id="trialResult" class="trial-result" aria-live="polite"></div>
+        <p class="dialog-footnote">The detector adapts its dark-object threshold to the live frame, then uses optical flow to follow small movements. This exercise validates the actual camera and room rather than claiming a model was trained from unlabelled video.</p>
+      </section>
+
+      <section id="componentsPanel" class="training-panel hidden">
+        <p class="training-instruction">Select a component to study it, or start a quiz. The projected component overlay follows the tracked console geometry and repair stage. Loose red/orange and blue Joy-Cons are labelled automatically whenever they are fully visible.</p>
+        <div class="component-learning-layout">
+          <div class="component-console" id="componentConsole" aria-label="Representative Nintendo Switch component diagram">
+            <div class="diagram-part diagram-joycon left" data-diagram-component="joycons"></div>
+            <div class="diagram-part diagram-body" data-diagram-component="backplate"></div>
+            <div class="diagram-part diagram-shield" data-diagram-component="heatshield"></div>
+            <div class="diagram-part diagram-battery" data-diagram-component="battery"></div>
+            <div class="diagram-part diagram-microsd" data-diagram-component="microsd"></div>
+            <div class="diagram-part diagram-joycon right" data-diagram-component="joycons"></div>
+          </div>
+          <div>
+            <div id="componentChoices" class="component-choices"></div>
+            <div id="componentDescription" class="component-description"></div>
+          </div>
+        </div>
+        <div id="quizBox" class="quiz-box hidden">
+          <strong id="quizPrompt">Which component is highlighted?</strong>
+          <div id="quizAnswers" class="quiz-answers"></div>
+          <p id="quizResult" aria-live="polite"></p>
+        </div>
+        <div class="training-actions">
+          <button id="componentQuizButton" class="secondary-button" type="button">Quiz me</button>
+          <button id="showComponentButton" class="primary-button" type="button">Show selected in AR</button>
+        </div>
+      </section>
+    </dialog>
+
+    <dialog id="assemblyDialog" class="help-dialog assembly-dialog">
+      <div class="dialog-header">
+        <div>
+          <p class="eyebrow">REPRESENTATIVE ANIMATION</p>
+          <h2>Reassembly order</h2>
+        </div>
+        <button id="closeAssemblyButton" class="icon-button" type="button" aria-label="Close assembly preview">&times;</button>
+      </div>
+      <div id="assemblyStage" class="assembly-stage" aria-label="Animated exploded view of Nintendo Switch reassembly">
+        <div class="assembly-shadow"></div>
+        <div class="assembly-part assembly-console" data-assembly-part="console"><span>Main console</span></div>
+        <div class="assembly-part assembly-battery" data-assembly-part="battery"><span>Battery</span></div>
+        <div class="assembly-part assembly-shield" data-assembly-part="shield"><span>Shield plate</span></div>
+        <div class="assembly-part assembly-backplate" data-assembly-part="backplate"><span>Rear panel</span></div>
+        <div class="assembly-part assembly-microsd" data-assembly-part="microsd"><span>microSD reader</span></div>
+        <div class="assembly-part assembly-joycon left" data-assembly-part="joycons"><span>Joy-Con</span></div>
+        <div class="assembly-part assembly-joycon right" data-assembly-part="joycons"><span>Joy-Con</span></div>
+      </div>
+      <div class="assembly-controls">
+        <button id="playAssemblyButton" class="primary-button" type="button">Play reassembly</button>
+        <button id="reverseAssemblyButton" class="secondary-button" type="button">Show exploded view</button>
+      </div>
+      <ol id="assemblySequence" class="assembly-sequence"></ol>
+      <p class="dialog-footnote">Representative only: use the repair steps and official reference images for exact connector, adhesive, thermal-interface, and screw placement.</p>
     </dialog>
 
     <script
