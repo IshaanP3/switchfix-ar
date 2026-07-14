@@ -41,6 +41,137 @@ function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), maximum);
 }
 
+export function analyzeLuminance(pixels = []) {
+  if (!pixels.length) return { brightness: 0, contrast: 0, low: 0, high: 0 };
+  const histogram = new Uint32Array(256);
+  let count = 0;
+  let sum = 0;
+  let squared = 0;
+  const stride = pixels.length > 180000 ? 3 : 1;
+  for (let index = 0; index < pixels.length; index += stride) {
+    const value = pixels[index];
+    histogram[value] += 1;
+    count += 1;
+    sum += value;
+    squared += value * value;
+  }
+  const brightness = sum / count;
+  const contrast = Math.sqrt(Math.max(0, squared / count - brightness * brightness));
+  const percentile = (ratio) => {
+    const target = count * ratio;
+    let seen = 0;
+    for (let value = 0; value < histogram.length; value += 1) {
+      seen += histogram[value];
+      if (seen >= target) return value;
+    }
+    return 255;
+  };
+  return { brightness, contrast, low: percentile(0.1), high: percentile(0.9) };
+}
+
+export function classifyLighting({ brightness = 0, contrast = 0 }) {
+  if (brightness < 45) return { id: "too-dark", label: "Too dark", advice: "Add soft light from the side." };
+  if (brightness < 100) return { id: "dim", label: "Dim", advice: "Tracking can work, but more light will improve edge contrast." };
+  if (brightness > 235) return { id: "too-bright", label: "Overexposed", advice: "Reduce direct light or move glare off the console." };
+  if (brightness > 185) return { id: "bright", label: "Bright", advice: "Good if the console has no large white reflection." };
+  if (contrast < 20) return { id: "flat", label: "Low contrast", advice: "Place the Switch on a lighter, plain surface." };
+  return { id: "balanced", label: "Balanced", advice: "Lighting and contrast are suitable for tracking." };
+}
+
+export function adaptiveDarkThreshold(baseThreshold, metrics) {
+  const brightnessAdjusted = baseThreshold + (metrics.brightness - 128) * 0.32;
+  const contrastCeiling = metrics.brightness - Math.max(14, metrics.contrast * 1.05);
+  return Math.round(clamp(Math.min(brightnessAdjusted, contrastCeiling), 36, 184));
+}
+
+export function classifyJoyconPixel(red, green, blue) {
+  const redOrOrange = red >= 105 &&
+    red - green >= 55 &&
+    red - blue >= 60 &&
+    red >= green * 1.5 &&
+    red >= blue * 1.45;
+  if (redOrOrange) return "red";
+
+  const neonBlue = blue >= 95 &&
+    blue - red >= 52 &&
+    green - red >= 24 &&
+    blue >= green * 0.95;
+  return neonBlue ? "blue" : null;
+}
+
+export function detectJoyconColorBlobs(rgba, width, height) {
+  if (!rgba?.length || width < 1 || height < 1) return [];
+  const total = width * height;
+  const mask = new Uint8Array(total);
+  for (let index = 0; index < total; index += 1) {
+    const offset = index * 4;
+    const color = classifyJoyconPixel(rgba[offset], rgba[offset + 1], rgba[offset + 2]);
+    mask[index] = color === "red" ? 1 : color === "blue" ? 2 : 0;
+  }
+
+  const queue = new Int32Array(total);
+  const minimumArea = Math.max(45, Math.round(total * 0.0012));
+  const maximumArea = total * 0.18;
+  const best = new Map();
+
+  for (let seed = 0; seed < total; seed += 1) {
+    const colorCode = mask[seed];
+    if (!colorCode) continue;
+    let head = 0;
+    let tail = 1;
+    queue[0] = seed;
+    mask[seed] = 0;
+    let area = 0;
+    let minX = width;
+    let maxX = 0;
+    let minY = height;
+    let maxY = 0;
+
+    while (head < tail) {
+      const position = queue[head++];
+      const x = position % width;
+      const y = Math.floor(position / width);
+      area += 1;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+
+      for (let nextY = Math.max(0, y - 1); nextY <= Math.min(height - 1, y + 1); nextY += 1) {
+        for (let nextX = Math.max(0, x - 1); nextX <= Math.min(width - 1, x + 1); nextX += 1) {
+          const next = nextY * width + nextX;
+          if (mask[next] !== colorCode) continue;
+          mask[next] = 0;
+          queue[tail++] = next;
+        }
+      }
+    }
+
+    if (area < minimumArea || area > maximumArea) continue;
+    const boxWidth = maxX - minX + 1;
+    const boxHeight = maxY - minY + 1;
+    const aspect = Math.max(boxWidth, boxHeight) / Math.max(1, Math.min(boxWidth, boxHeight));
+    const fill = area / Math.max(1, boxWidth * boxHeight);
+    const clippedByFrame = minX <= 2 || minY <= 2 || maxX >= width - 3 || maxY >= height - 3;
+    if (clippedByFrame || boxWidth < 4 || boxHeight < 4 || aspect < 2.1 || aspect > 6.8 || fill < 0.3) continue;
+
+    const color = colorCode === 1 ? "red" : "blue";
+    const candidate = {
+      color,
+      label: color === "red" ? "Red Joy-Con" : "Blue Joy-Con",
+      x: minX,
+      y: minY,
+      width: boxWidth,
+      height: boxHeight,
+      confidence: Math.round(clamp(58 + fill * 28 + Math.min(aspect, 4) * 3, 0, 96)),
+      score: area * fill,
+    };
+    if (!best.has(color) || candidate.score > best.get(color).score) best.set(color, candidate);
+  }
+
+  return [...best.values()].map(({ score, ...candidate }) => candidate);
+}
+
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
@@ -129,13 +260,14 @@ function regularizePerspective(points, maximumEdgeRatio = 1.2) {
 }
 
 export class SwitchTracker {
-  constructor({ video, canvas, stage, onDetectionState, onManualState }) {
+  constructor({ video, canvas, stage, onDetectionState, onManualState, onFrameMetrics }) {
     this.video = video;
     this.canvas = canvas;
     this.stage = stage;
     this.ctx = canvas.getContext("2d");
     this.onDetectionState = onDetectionState;
     this.onManualState = onManualState;
+    this.onFrameMetrics = onFrameMetrics;
 
     this.stream = null;
     this.trackerReady = false;
@@ -164,6 +296,9 @@ export class SwitchTracker {
     this.manualLock = false;
     this.calibrating = false;
     this.calibrationPoints = [];
+    this.sceneMetrics = { brightness: 0, contrast: 0, low: 0, high: 0 };
+    this.currentThreshold = this.profile.darkThreshold;
+    this.looseJoycons = [];
 
     this.renderLoop = this.renderLoop.bind(this);
     this.handleCalibrationTap = this.handleCalibrationTap.bind(this);
@@ -221,6 +356,7 @@ export class SwitchTracker {
     cancelAnimationFrame(this.animationFrame);
     this.animationFrame = null;
     this.points = [];
+    this.looseJoycons = [];
     this.cancelManualCalibration();
     this.stream?.getTracks().forEach((track) => track.stop());
     this.stream = null;
@@ -323,7 +459,7 @@ export class SwitchTracker {
     if (!this.stream) return;
     this.drawOverlay();
 
-    if (this.trackerReady && !this.manualLock && !this.calibrating && timestamp - this.lastDetectionAt >= this.frameInterval) {
+    if (this.trackerReady && timestamp - this.lastDetectionAt >= this.frameInterval) {
       this.lastDetectionAt = timestamp;
       this.detectDevice();
     }
@@ -339,6 +475,7 @@ export class SwitchTracker {
       this.ensureAnalysisBuffers(jsfeat);
       this.analysisContext.drawImage(this.video, 0, 0, this.analysisWidth, this.analysisHeight);
       const image = this.analysisContext.getImageData(0, 0, this.analysisWidth, this.analysisHeight);
+      this.looseJoycons = detectJoyconColorBlobs(image.data, this.analysisWidth, this.analysisHeight);
       jsfeat.imgproc.grayscale(
         image.data,
         this.analysisWidth,
@@ -347,7 +484,15 @@ export class SwitchTracker {
         jsfeat.COLOR_RGBA2GRAY,
       );
       jsfeat.imgproc.gaussian_blur(this.gray, this.blurred, 5, 0);
+      this.sceneMetrics = analyzeLuminance(this.blurred.data);
+      this.currentThreshold = adaptiveDarkThreshold(this.profile.darkThreshold, this.sceneMetrics);
       this.currentPyramid.build(this.blurred, false);
+
+      if (this.manualLock || this.calibrating) {
+        this.emitFrameMetrics(this.manualLock ? "manual" : "searching", this.points);
+        this.finishAnalysisFrame();
+        return;
+      }
 
       this.trackingFrame += 1;
       const tracked = this.trackWithOpticalFlow(jsfeat);
@@ -356,6 +501,7 @@ export class SwitchTracker {
         this.missedFrames = 0;
         this.lastConfidence = Math.max(this.lastConfidence, 78);
         this.emitState("tracking", this.lastConfidence);
+        this.emitFrameMetrics("tracking", this.points);
         this.finishAnalysisFrame();
         return;
       }
@@ -370,16 +516,21 @@ export class SwitchTracker {
         this.detectedFrames += 1;
         this.missedFrames = 0;
         this.lastConfidence = candidate.confidence;
-        this.emitState(this.detectedFrames >= 2 ? "detected" : "searching", candidate.confidence);
+        const state = this.detectedFrames >= 2 ? "detected" : "searching";
+        this.emitState(state, candidate.confidence);
+        this.emitFrameMetrics(state, candidate.points, candidate);
       } else if (tracked) {
         this.detectedFrames += 1;
         this.missedFrames = 0;
         this.emitState("tracking", this.lastConfidence);
+        this.emitFrameMetrics("tracking", this.points);
       } else {
         this.detectedFrames = 0;
         this.missedFrames += 1;
         if (this.missedFrames > 5) this.points = [];
-        this.emitState(this.points.length ? "searching" : "lost", this.lastConfidence);
+        const state = this.points.length ? "searching" : "lost";
+        this.emitState(state, this.lastConfidence);
+        this.emitFrameMetrics(state, this.points);
       }
       this.finishAnalysisFrame();
     } catch (error) {
@@ -467,7 +618,7 @@ export class SwitchTracker {
     const total = width * height;
     const pixels = this.blurred.data;
     const mask = new Uint8Array(total);
-    const threshold = this.profile.darkThreshold;
+    const threshold = this.currentThreshold;
     for (let index = 0; index < total; index += 1) mask[index] = pixels[index] < threshold ? 1 : 0;
 
     const queue = new Int32Array(total);
@@ -580,11 +731,15 @@ export class SwitchTracker {
         borderScore * 0.05;
 
       if (!best || score > best.score) {
+        const topWidth = distance(points[0], points[1]);
+        const bottomWidth = distance(points[3], points[2]);
         best = {
           points,
           score,
           confidence: Math.round(clamp(score, 0, 1) * 100),
           area: quadArea,
+          angle,
+          perspectiveRatio: Math.max(topWidth, bottomWidth) / Math.max(1, Math.min(topWidth, bottomWidth)),
         };
       }
 
@@ -603,11 +758,35 @@ export class SwitchTracker {
     });
   }
 
+  emitFrameMetrics(state, points = [], candidate = {}) {
+    const lighting = classifyLighting(this.sceneMetrics);
+    let angle = candidate.angle ?? 0;
+    let perspectiveRatio = candidate.perspectiveRatio ?? 1;
+    if (points.length === 4) {
+      angle = candidate.angle ?? longAxisAngle(points);
+      const topWidth = distance(points[0], points[1]);
+      const bottomWidth = distance(points[3], points[2]);
+      perspectiveRatio = candidate.perspectiveRatio ?? Math.max(topWidth, bottomWidth) / Math.max(1, Math.min(topWidth, bottomWidth));
+    }
+    this.onFrameMetrics?.({
+      brightness: Math.round(this.sceneMetrics.brightness),
+      contrast: Math.round(this.sceneMetrics.contrast),
+      lighting,
+      threshold: this.currentThreshold,
+      state,
+      locked: state === "detected" || state === "tracking" || this.manualLock,
+      angle,
+      perspectiveRatio,
+      joycons: this.looseJoycons.map(({ color, label, confidence }) => ({ color, label, confidence })),
+    });
+  }
+
   drawOverlay() {
     this.clearCanvas();
     if (!this.points.length) {
       this.drawTargetGuide();
       this.drawCalibrationPoints();
+      this.drawLooseJoycons();
       return;
     }
 
@@ -629,6 +808,47 @@ export class SwitchTracker {
     ctx.setLineDash([]);
 
     this.markers.forEach((marker, index) => this.drawMarker(marker, index));
+    ctx.restore();
+    this.drawLooseJoycons();
+  }
+
+  drawLooseJoycons() {
+    if (!this.looseJoycons.length || !this.analysisWidth || !this.analysisHeight) return;
+    const scaleX = this.canvas.width / this.analysisWidth;
+    const scaleY = this.canvas.height / this.analysisHeight;
+    const scale = Math.max(0.75, this.canvas.width / 1280);
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.lineJoin = "round";
+    this.looseJoycons.forEach((joycon) => {
+      const padding = 7 * scale;
+      const x = joycon.x * scaleX - padding;
+      const y = joycon.y * scaleY - padding;
+      const width = joycon.width * scaleX + padding * 2;
+      const height = joycon.height * scaleY + padding * 2;
+      const accent = joycon.color === "red" ? "#ff654f" : "#45b7ff";
+      roundRect(ctx, x, y, width, height, 10 * scale);
+      ctx.fillStyle = joycon.color === "red" ? "rgba(255, 75, 55, 0.1)" : "rgba(38, 155, 255, 0.1)";
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 3 * scale;
+      ctx.fill();
+      ctx.stroke();
+
+      const label = `${joycon.label}  ${joycon.confidence}%`;
+      ctx.font = `800 ${Math.round(12 * scale)}px Inter, sans-serif`;
+      const labelWidth = ctx.measureText(label).width + 18 * scale;
+      const labelX = clamp(x, 8, this.canvas.width - labelWidth - 8);
+      const labelY = Math.max(8, y - 29 * scale);
+      roundRect(ctx, labelX, labelY, labelWidth, 25 * scale, 7 * scale);
+      ctx.fillStyle = "rgba(16, 19, 21, 0.92)";
+      ctx.fill();
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = "#f7fafc";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, labelX + 9 * scale, labelY + 12.5 * scale);
+    });
     ctx.restore();
   }
 
@@ -685,9 +905,30 @@ export class SwitchTracker {
   }
 
   drawMarker(marker, index) {
-    const point = projectPoint(marker.x, marker.y, this.points);
     const scale = Math.max(0.75, this.canvas.width / 1280);
     const ctx = this.ctx;
+
+    if (marker.type === "component") {
+      const region = [
+        projectPoint(marker.x, marker.y, this.points),
+        projectPoint(marker.x + marker.width, marker.y, this.points),
+        projectPoint(marker.x + marker.width, marker.y + marker.height, this.points),
+        projectPoint(marker.x, marker.y + marker.height, this.points),
+      ];
+      ctx.beginPath();
+      region.forEach((point, pointIndex) => pointIndex ? ctx.lineTo(point.x, point.y) : ctx.moveTo(point.x, point.y));
+      ctx.closePath();
+      ctx.fillStyle = "rgba(100, 214, 154, 0.16)";
+      ctx.strokeStyle = "rgba(145, 255, 197, 0.96)";
+      ctx.lineWidth = 3 * scale;
+      ctx.fill();
+      ctx.stroke();
+      const center = projectPoint(marker.x + marker.width / 2, marker.y + marker.height / 2, this.points);
+      this.drawLabel(center, "", marker.label, scale, "component");
+      return;
+    }
+
+    const point = projectPoint(marker.x, marker.y, this.points);
 
     if (marker.type === "screw") {
       const radius = 14 * scale;
@@ -725,7 +966,7 @@ export class SwitchTracker {
     }
   }
 
-  drawLabel(point, number, label, scale) {
+  drawLabel(point, number, label, scale, variant = "action") {
     const ctx = this.ctx;
     const text = number ? `${number}  ${label}` : label;
     ctx.font = `700 ${Math.round(12 * scale)}px Inter, sans-serif`;
@@ -735,10 +976,10 @@ export class SwitchTracker {
     roundRect(ctx, x, y - 18 * scale, width, 27 * scale, 7 * scale);
     ctx.fillStyle = "rgba(20, 22, 24, 0.9)";
     ctx.fill();
-    ctx.strokeStyle = "rgba(255, 122, 26, 0.62)";
+    ctx.strokeStyle = variant === "component" ? "rgba(100, 214, 154, 0.78)" : "rgba(255, 122, 26, 0.62)";
     ctx.lineWidth = 1;
     ctx.stroke();
-    ctx.fillStyle = "#fff4eb";
+    ctx.fillStyle = variant === "component" ? "#dfffee" : "#fff4eb";
     ctx.fillText(text, x + 9 * scale, y);
   }
 

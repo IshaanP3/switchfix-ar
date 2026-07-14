@@ -12,6 +12,8 @@ For tracking problems, include:
 - Lighting and work-surface description
 - Repair step and camera view
 - Whether automatic re-scan or manual corner alignment worked
+- Whether the issue concerns the console outline, projected component, or loose Joy-Con label
+- Joy-Con colour, surrounding colours, and whether the controller was fully inside the frame
 
 Do not upload images containing private information or identifiable people.
 
@@ -21,7 +23,8 @@ Do not upload images containing private information or identifiable people.
 2. Make focused changes without adding a build requirement unless it is essential.
 3. Run `npm test`.
 4. Test automatic detection and the manual four-corner fallback.
-5. Confirm every marker change against the linked iFixit reference image.
+5. Test loose red/orange and blue Joy-Cons against both neutral and similarly coloured backgrounds.
+6. Confirm every marker change against the linked iFixit reference image.
 
 ## Pull requests
 

@@ -5,6 +5,14 @@ import {
   loadIfixitGuide,
 } from "./guide-data.js";
 import { SwitchTracker } from "./tracking.js";
+import {
+  ASSEMBLY_SEQUENCE,
+  COMPONENTS,
+  DEFAULT_REPAIR_ROTATION,
+  LIGHTING_TRIALS,
+  componentMarkers,
+  evaluateLightingTrial,
+} from "./training-data.js";
 
 const elements = {
   apiStatus: document.querySelector("#apiStatus"),
@@ -48,6 +56,47 @@ const elements = {
   helpDialog: document.querySelector("#helpDialog"),
   helpButton: document.querySelector("#helpButton"),
   closeHelpButton: document.querySelector("#closeHelpButton"),
+  trainingButton: document.querySelector("#trainingButton"),
+  assemblyButton: document.querySelector("#assemblyButton"),
+  riskBadge: document.querySelector("#riskBadge"),
+  riskLabel: document.querySelector("#riskLabel"),
+  riskMessage: document.querySelector("#riskMessage"),
+  componentBadge: document.querySelector("#componentBadge"),
+  componentBadgeName: document.querySelector("#componentBadgeName"),
+  clearComponentButton: document.querySelector("#clearComponentButton"),
+  sceneLighting: document.querySelector("#sceneLighting"),
+  trainingScore: document.querySelector("#trainingScore"),
+  openAlignmentButton: document.querySelector("#openAlignmentButton"),
+  openComponentsButton: document.querySelector("#openComponentsButton"),
+  openAssemblyButton: document.querySelector("#openAssemblyButton"),
+  trainingDialog: document.querySelector("#trainingDialog"),
+  closeTrainingButton: document.querySelector("#closeTrainingButton"),
+  alignmentPanel: document.querySelector("#alignmentPanel"),
+  componentsPanel: document.querySelector("#componentsPanel"),
+  lightingTrials: document.querySelector("#lightingTrials"),
+  metricLighting: document.querySelector("#metricLighting"),
+  metricBrightness: document.querySelector("#metricBrightness"),
+  metricContrast: document.querySelector("#metricContrast"),
+  metricTracking: document.querySelector("#metricTracking"),
+  lightingAdvice: document.querySelector("#lightingAdvice"),
+  startTrainingCameraButton: document.querySelector("#startTrainingCameraButton"),
+  recordTrialButton: document.querySelector("#recordTrialButton"),
+  trialResult: document.querySelector("#trialResult"),
+  componentConsole: document.querySelector("#componentConsole"),
+  componentChoices: document.querySelector("#componentChoices"),
+  componentDescription: document.querySelector("#componentDescription"),
+  quizBox: document.querySelector("#quizBox"),
+  quizPrompt: document.querySelector("#quizPrompt"),
+  quizAnswers: document.querySelector("#quizAnswers"),
+  quizResult: document.querySelector("#quizResult"),
+  componentQuizButton: document.querySelector("#componentQuizButton"),
+  showComponentButton: document.querySelector("#showComponentButton"),
+  assemblyDialog: document.querySelector("#assemblyDialog"),
+  closeAssemblyButton: document.querySelector("#closeAssemblyButton"),
+  playAssemblyButton: document.querySelector("#playAssemblyButton"),
+  reverseAssemblyButton: document.querySelector("#reverseAssemblyButton"),
+  assemblyStage: document.querySelector("#assemblyStage"),
+  assemblySequence: document.querySelector("#assemblySequence"),
   safetyPower: document.querySelector("#safetyPower"),
   safetyBattery: document.querySelector("#safetyBattery"),
   safetyModel: document.querySelector("#safetyModel"),
@@ -60,6 +109,12 @@ let currentViewIndex = 0;
 let completedScrewIds = new Set();
 let cameraActive = false;
 let tracker;
+let selectedTrialId = LIGHTING_TRIALS[0].id;
+let completedTrialIds = new Set();
+let latestMetrics = { brightness: 0, contrast: 0, angle: 0, perspectiveRatio: 1, locked: false };
+let selectedComponentId = "battery";
+let activeComponentId = null;
+let quizIndex = 0;
 
 function readSavedState() {
   try {
@@ -67,6 +122,7 @@ function readSavedState() {
     currentStepIndex = Number.isInteger(state.currentStepIndex) ? state.currentStepIndex : 0;
     currentViewIndex = Number.isInteger(state.currentViewIndex) ? state.currentViewIndex : 0;
     completedScrewIds = new Set(Array.isArray(state.completedScrewIds) ? state.completedScrewIds : []);
+    completedTrialIds = new Set(Array.isArray(state.completedTrialIds) ? state.completedTrialIds : []);
     elements.safetyPower.checked = Boolean(state.safetyPower);
     elements.safetyBattery.checked = Boolean(state.safetyBattery);
     elements.safetyModel.checked = Boolean(state.safetyModel);
@@ -74,6 +130,7 @@ function readSavedState() {
     currentStepIndex = 0;
     currentViewIndex = 0;
     completedScrewIds = new Set();
+    completedTrialIds = new Set();
   }
 }
 
@@ -84,6 +141,7 @@ function saveState() {
       currentStepIndex,
       currentViewIndex,
       completedScrewIds: [...completedScrewIds],
+      completedTrialIds: [...completedTrialIds],
       safetyPower: elements.safetyPower.checked,
       safetyBattery: elements.safetyBattery.checked,
       safetyModel: elements.safetyModel.checked,
@@ -119,11 +177,11 @@ function getCameraViews(step) {
     title: interior ? "Interior view" : "Rear view",
     icon: interior ? "⌖" : "▭",
     instruction: interior
-      ? "Keep the Switch in the same 180-degree orientation, with the top edge nearest you. Lay the open interior flat and keep the complete metal frame visible."
-      : "Match your reference setup: lay the Switch rear-up, with the logo upside down in the preview and the kickstand on the upper-right. Slight perspective is fine.",
+      ? "Lay the open interior flat with the microSD area toward the top-right of the preview. Keep the complete metal frame visible; a slight angle is fine."
+      : "Lay the Switch rear-up with the kickstand and microSD area toward the top-right of the preview. Slight perspective is fine.",
     profile: "device-wide",
     markers: step.screws || step.markers || [],
-    rotation: 180,
+    rotation: DEFAULT_REPAIR_ROTATION,
   }];
 }
 
@@ -150,6 +208,9 @@ function renderStep() {
   const rawMarkers = view.markers || step.screws || step.markers || [];
   const currentMarkers = orientMarkers(rawMarkers, view.rotation);
   const currentScrews = currentMarkers.filter((marker) => marker.type === "screw");
+  const overlayMarkers = activeComponentId
+    ? [...currentMarkers, ...componentMarkers(activeComponentId, view.rotation)]
+    : currentMarkers;
 
   elements.stepNumber.textContent = `Step ${step.number}`;
   elements.stepTitle.textContent = step.title;
@@ -163,6 +224,7 @@ function renderStep() {
 
   elements.stepWarning.textContent = step.warning || "";
   elements.stepWarning.classList.toggle("hidden", !step.warning);
+  renderRiskBadge(step.risk);
   elements.currentTool.textContent = step.tool || "No tool required";
   elements.toolTip.textContent = currentScrews.length
     ? `This camera view contains ${currentScrews.length} screw${currentScrews.length === 1 ? "" : "s"}. Remove the orange marker${currentScrews.length === 1 ? "" : "s"}, then continue.`
@@ -186,10 +248,25 @@ function renderStep() {
   renderViewSequence(views);
   updateOrientationCard(view);
   tracker?.setProfile(view.profile || "device-wide");
-  tracker?.setMarkers(currentMarkers);
+  tracker?.setMarkers(overlayMarkers);
   renderScrewChart();
   renderReferenceImage(step, view);
+  renderComponentBadge();
   saveState();
+}
+
+function renderRiskBadge(risk) {
+  elements.riskBadge.classList.toggle("hidden", !risk);
+  if (!risk) return;
+  elements.riskBadge.dataset.level = risk.level || "fragile";
+  elements.riskLabel.textContent = risk.label;
+  elements.riskMessage.textContent = risk.message;
+}
+
+function renderComponentBadge() {
+  const component = COMPONENTS.find((item) => item.id === activeComponentId);
+  elements.componentBadge.classList.toggle("hidden", !component);
+  if (component) elements.componentBadgeName.textContent = component.shortName;
 }
 
 function renderViewSequence(views) {
@@ -281,6 +358,19 @@ function handleDetectionState({ state, confidence = 0, profile }) {
   elements.orientationCard.dataset.state = state;
 }
 
+function handleFrameMetrics(metrics) {
+  latestMetrics = metrics;
+  const joyconStatus = metrics.joycons?.length
+    ? ` | ${metrics.joycons.map((joycon) => joycon.label).join(" + ")} found`
+    : "";
+  elements.sceneLighting.textContent = `Lighting: ${metrics.lighting.label.toLowerCase()} | brightness ${metrics.brightness} | contrast ${metrics.contrast}${joyconStatus}`;
+  elements.metricLighting.textContent = metrics.lighting.label;
+  elements.metricBrightness.textContent = String(metrics.brightness);
+  elements.metricContrast.textContent = String(metrics.contrast);
+  elements.metricTracking.textContent = metrics.locked ? "Locked" : "Searching";
+  elements.lightingAdvice.textContent = metrics.lighting.advice;
+}
+
 function handleManualState({ state, count = 0 }) {
   if (state === "idle") {
     elements.manualButton.classList.remove("active");
@@ -298,9 +388,14 @@ function handleManualState({ state, count = 0 }) {
   elements.orientationCard.dataset.state = state === "manual" ? "detected" : "searching";
   elements.manualButton.classList.toggle("active", state === "calibrating");
   elements.manualButton.textContent = state === "calibrating" ? "Cancel tapping" : "Tap corners";
+  if (state === "manual") {
+    latestMetrics = { ...latestMetrics, locked: true };
+    elements.metricTracking.textContent = "Manual lock";
+  }
 }
 
 async function startCamera() {
+  if (cameraActive) return;
   if (!navigator.mediaDevices?.getUserMedia) {
     alert("Camera access is not supported in this browser. Use a current browser over HTTPS or localhost.");
     return;
@@ -313,7 +408,10 @@ async function startCamera() {
     elements.orientationCard.classList.remove("hidden");
     const view = getCurrentView();
     tracker.setProfile(view.profile || "device-wide");
-    tracker.setMarkers(orientMarkers(view.markers || [], view.rotation));
+    const viewMarkers = orientMarkers(view.markers || [], view.rotation);
+    tracker.setMarkers(activeComponentId
+      ? [...viewMarkers, ...componentMarkers(activeComponentId, view.rotation)]
+      : viewMarkers);
     await tracker.startCamera();
     updateOrientationCard(view);
   } catch (error) {
@@ -335,6 +433,12 @@ function stopCamera() {
   elements.trackingBadge.classList.add("hidden");
   elements.manualButton.classList.remove("active");
   elements.manualButton.textContent = "Tap corners";
+  latestMetrics = { brightness: 0, contrast: 0, angle: 0, perspectiveRatio: 1, locked: false };
+  elements.sceneLighting.textContent = "Measuring lighting...";
+  elements.metricLighting.textContent = "Camera off";
+  elements.metricBrightness.textContent = "--";
+  elements.metricContrast.textContent = "--";
+  elements.metricTracking.textContent = "Not locked";
 }
 
 function startDemo() {
@@ -405,6 +509,165 @@ function resetProgress() {
   tracker?.rescan();
 }
 
+function renderLightingTrials() {
+  elements.lightingTrials.innerHTML = "";
+  LIGHTING_TRIALS.forEach((trial) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `lighting-trial${trial.id === selectedTrialId ? " active" : ""}${completedTrialIds.has(trial.id) ? " passed" : ""}`;
+    button.innerHTML = `<strong>${trial.title}</strong><small>${trial.instruction}</small>`;
+    button.addEventListener("click", () => {
+      selectedTrialId = trial.id;
+      elements.trialResult.textContent = trial.instruction;
+      elements.trialResult.className = "trial-result";
+      renderLightingTrials();
+    });
+    elements.lightingTrials.appendChild(button);
+  });
+  elements.trainingScore.textContent = `${completedTrialIds.size} / ${LIGHTING_TRIALS.length}`;
+}
+
+function recordLightingTrial() {
+  const trial = LIGHTING_TRIALS.find((item) => item.id === selectedTrialId);
+  if (!cameraActive) {
+    elements.trialResult.textContent = "Start the camera before recording a trial.";
+    elements.trialResult.className = "trial-result fail";
+    return;
+  }
+  if (evaluateLightingTrial(selectedTrialId, latestMetrics)) {
+    completedTrialIds.add(selectedTrialId);
+    elements.trialResult.textContent = `${trial.title} passed: the console is locked under this setup.`;
+    elements.trialResult.className = "trial-result pass";
+    saveState();
+    renderLightingTrials();
+    return;
+  }
+  const lockAdvice = latestMetrics.locked ? "" : " Wait for an automatic lock or use Tap corners.";
+  elements.trialResult.textContent = `${trial.title} is not ready yet. ${trial.instruction}${lockAdvice}`;
+  elements.trialResult.className = "trial-result fail";
+}
+
+function openTraining(tab = "alignment") {
+  document.querySelectorAll("[data-training-tab]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.trainingTab === tab);
+  });
+  elements.alignmentPanel.classList.toggle("hidden", tab !== "alignment");
+  elements.componentsPanel.classList.toggle("hidden", tab !== "components");
+  if (!elements.trainingDialog.open) elements.trainingDialog.showModal();
+}
+
+function selectComponent(componentId, { keepQuiz = false } = {}) {
+  selectedComponentId = componentId;
+  const component = COMPONENTS.find((item) => item.id === componentId);
+  elements.componentConsole.dataset.selected = componentId;
+  document.querySelectorAll(".component-choice").forEach((button) => {
+    button.classList.toggle("active", button.dataset.componentId === componentId);
+  });
+  elements.componentDescription.innerHTML = `<strong>${component.name}</strong>${component.description}<br><small>Visible when: ${component.stage}.</small>`;
+  if (!keepQuiz) elements.quizBox.classList.add("hidden");
+}
+
+function renderComponentChoices() {
+  elements.componentChoices.innerHTML = "";
+  COMPONENTS.forEach((component) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "component-choice";
+    button.dataset.componentId = component.id;
+    button.textContent = component.name;
+    button.addEventListener("click", () => selectComponent(component.id));
+    elements.componentChoices.appendChild(button);
+  });
+  selectComponent(selectedComponentId);
+}
+
+function startComponentQuiz() {
+  const priorityOrder = ["battery", "joycons", "heatshield", "microsd", "backplate"];
+  const targetId = priorityOrder[quizIndex % priorityOrder.length];
+  quizIndex += 1;
+  const target = COMPONENTS.find((item) => item.id === targetId);
+  selectComponent(targetId, { keepQuiz: true });
+  elements.componentDescription.innerHTML = "<strong>Highlighted region</strong>Choose its correct component name below.";
+  elements.quizPrompt.textContent = "Which component is highlighted in green?";
+  elements.quizResult.textContent = "";
+  elements.quizAnswers.innerHTML = "";
+  COMPONENTS.forEach((component) => {
+    const answer = document.createElement("button");
+    answer.type = "button";
+    answer.textContent = component.shortName;
+    answer.addEventListener("click", () => {
+      const correct = component.id === targetId;
+      elements.quizResult.textContent = correct
+        ? `Correct - ${target.name}. ${target.description}`
+        : `Not quite. Look at the highlighted shape and try again.`;
+      if (correct) elements.componentDescription.innerHTML = `<strong>${target.name}</strong>${target.description}`;
+    });
+    elements.quizAnswers.appendChild(answer);
+  });
+  elements.quizBox.classList.remove("hidden");
+}
+
+async function showSelectedComponentInAr() {
+  const component = COMPONENTS.find((item) => item.id === selectedComponentId);
+  activeComponentId = component.id;
+  currentStepIndex = component.step - 1;
+  currentViewIndex = 0;
+  renderStep();
+  elements.trainingDialog.close();
+  if (!cameraActive) await startCamera();
+  else tracker.rescan();
+}
+
+function clearComponentOverlay() {
+  activeComponentId = null;
+  renderStep();
+}
+
+function renderAssemblySequence() {
+  elements.assemblySequence.innerHTML = "";
+  ASSEMBLY_SEQUENCE.forEach((item) => {
+    const row = document.createElement("li");
+    row.dataset.assemblyStep = item.id;
+    row.innerHTML = `<strong>${item.label}</strong>${item.note}`;
+    elements.assemblySequence.appendChild(row);
+  });
+}
+
+function assemblyTransform(part, exploded) {
+  const base = "translate(-50%, -50%) rotateX(59deg) rotateZ(-5deg)";
+  if (!exploded || part.dataset.assemblyPart === "console") return base;
+  if (part.classList.contains("assembly-joycon")) {
+    const offset = part.classList.contains("left") ? -155 : 55;
+    return `translate(${offset}%, -50%) rotateX(59deg) rotateZ(-5deg)`;
+  }
+  const lift = { battery: 95, shield: 145, microsd: 95, backplate: 235 }[part.dataset.assemblyPart] || 0;
+  return `translate(-50%, calc(-50% - ${lift}px)) rotateX(59deg) rotateZ(-5deg)`;
+}
+
+function playAssembly(exploded = false) {
+  const delayByPart = { battery: 0, shield: 420, microsd: 840, backplate: 1260, joycons: 1680, console: 0 };
+  const parts = [...elements.assemblyStage.querySelectorAll(".assembly-part")];
+  parts.forEach((part) => {
+    part.getAnimations().forEach((animation) => animation.cancel());
+    const assembled = assemblyTransform(part, false);
+    const separated = assemblyTransform(part, true);
+    const partDelay = delayByPart[part.dataset.assemblyPart] || 0;
+    const delay = exploded ? Math.max(0, 1680 - partDelay) : partDelay;
+    part.animate(
+      [
+        { transform: exploded ? assembled : separated, opacity: part.dataset.assemblyPart === "console" ? 1 : 0.72 },
+        { transform: exploded ? separated : assembled, opacity: 1 },
+      ],
+      { duration: 680, delay, easing: "cubic-bezier(.2,.78,.25,1)", fill: "forwards" },
+    );
+  });
+}
+
+function openAssembly() {
+  if (!elements.assemblyDialog.open) elements.assemblyDialog.showModal();
+  playAssembly(true);
+}
+
 function bindEvents() {
   elements.startCameraButton.addEventListener("click", startCamera);
   elements.demoButton.addEventListener("click", startDemo);
@@ -423,6 +686,23 @@ function bindEvents() {
   elements.resetProgressButton.addEventListener("click", resetProgress);
   elements.helpButton.addEventListener("click", () => elements.helpDialog.showModal());
   elements.closeHelpButton.addEventListener("click", () => elements.helpDialog.close());
+  elements.trainingButton.addEventListener("click", () => openTraining("alignment"));
+  elements.assemblyButton.addEventListener("click", openAssembly);
+  elements.openAlignmentButton.addEventListener("click", () => openTraining("alignment"));
+  elements.openComponentsButton.addEventListener("click", () => openTraining("components"));
+  elements.openAssemblyButton.addEventListener("click", openAssembly);
+  elements.closeTrainingButton.addEventListener("click", () => elements.trainingDialog.close());
+  elements.closeAssemblyButton.addEventListener("click", () => elements.assemblyDialog.close());
+  elements.startTrainingCameraButton.addEventListener("click", startCamera);
+  elements.recordTrialButton.addEventListener("click", recordLightingTrial);
+  elements.componentQuizButton.addEventListener("click", startComponentQuiz);
+  elements.showComponentButton.addEventListener("click", showSelectedComponentInAr);
+  elements.clearComponentButton.addEventListener("click", clearComponentOverlay);
+  elements.playAssemblyButton.addEventListener("click", () => playAssembly(false));
+  elements.reverseAssemblyButton.addEventListener("click", () => playAssembly(true));
+  document.querySelectorAll("[data-training-tab]").forEach((button) => {
+    button.addEventListener("click", () => openTraining(button.dataset.trainingTab));
+  });
   [elements.safetyPower, elements.safetyBattery, elements.safetyModel].forEach((checkbox) => {
     checkbox.addEventListener("change", saveState);
   });
@@ -437,8 +717,12 @@ function init() {
     stage: elements.cameraStage,
     onDetectionState: handleDetectionState,
     onManualState: handleManualState,
+    onFrameMetrics: handleFrameMetrics,
   });
   bindEvents();
+  renderLightingTrials();
+  renderComponentChoices();
+  renderAssemblySequence();
   renderScrewChart();
   renderStep();
   initialiseGuide();
